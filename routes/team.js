@@ -1,7 +1,7 @@
 // Team console for First Response staff: approve guidelines, add reviews,
 // mark replies posted, and review / edit / send monthly reports.
 import { config } from '../lib/config.js';
-import { db, qs, UUID } from '../lib/supabase.js';
+import { auth, db, qs, UUID } from '../lib/supabase.js';
 import { appPage, ago, esc, notice, stars } from '../lib/html.js';
 import { HttpError, redirect, sendHtml } from '../lib/http.js';
 import { isSameOrigin } from './auth.js';
@@ -83,16 +83,31 @@ export async function getTeamBusiness(req, res, { params, query }) {
   if (!ctx) return;
   const d = db(ctx.user.token);
   const b = await loadBusiness(d, params.id);
-  const [toPost, reports] = await Promise.all([
+  const [toPost, reports, members] = await Promise.all([
     d.select('reviews', qs({ business_id: `eq.${b.id}`, status: 'eq.approved', select: '*', order: 'replied_at.asc' })),
     d.select('reports', qs({ business_id: `eq.${b.id}`, select: 'id,period_start,status,sent_at', order: 'period_start.desc' })),
+    d.select('memberships', qs({ business_id: `eq.${b.id}`, select: 'user_id' })),
   ]);
   const [cls, label] = guidelinesStatus(b);
   const needsApproval = b.guidelines && (b.status === 'in_review' || !b.guidelines_approved_at);
-  const msgs = { approved: 'Guidelines approved. The client can start receiving replies.', review: 'Review added.', posted: 'Marked as posted.', exists: 'A report for that month already exists.' };
+  const msgs = {
+    approved: 'Guidelines approved. The client can start receiving replies.', review: 'Review added.', posted: 'Marked as posted.', exists: 'A report for that month already exists.',
+    invited: `Set-password email sent to ${b.owner_email}.`,
+    reset: `${b.owner_email} already had an account. We linked it to this business and sent a password-reset email.`,
+  };
+  const errs = {
+    limited: 'The email service is at its hourly limit, so nothing was sent. Try again in about an hour, or connect Resend in Supabase’s SMTP settings to raise the limit.',
+    noemail: 'This business has no owner email on file.',
+    invite: 'The email couldn’t be sent. Check the dashboard logs in Render for details.',
+  };
+  const access = `<section class="card"><h2>Client login</h2>
+      ${members.length ? `<p class="note">${members.length} login${members.length === 1 ? '' : 's'} connected to this business.</p>` : `<p class="note">No one can log in to this business yet. Send ${esc(b.owner_email || 'the owner')} a link to set their password and fill in the questionnaire.</p>`}
+      ${b.owner_email ? `<form method="post" action="/team/b/${esc(b.id)}/invite"><button class="btn${members.length ? '' : ' primary'}" type="submit">${members.length ? 'Resend' : 'Send'} set-password email</button></form>` : ''}
+    </section>`;
   const body = `<header class="top"><div><p class="fine"><a href="/team">← Team console</a></p><h1>${esc(b.name)}</h1>
       <p class="sub">${esc([b.city, b.plan && `${b.plan} plan`, b.locations && `${b.locations} location(s)`, b.owner_email].filter(Boolean).join(' · '))}</p></div>
       <span class="pill ${cls}">${label}</span></header>
+    ${access}
     <section class="card"><h2>Reputation guidelines</h2>
       ${b.guidelines ? `${needsApproval ? `<form method="post" action="/team/b/${esc(b.id)}/approve-guidelines" class="row"><p class="note">Read the guidelines below, then approve to start replies.</p><button class="btn primary" type="submit">Approve guidelines</button></form>` : ''}
       <div class="guide">${renderGuidelines(b)}</div>` : '<p class="note">The client hasn’t finished the questionnaire yet.</p>'}
@@ -120,7 +135,37 @@ export async function getTeamBusiness(req, res, { params, query }) {
       <form method="post" action="/team/b/${esc(b.id)}/reports/generate"><button class="btn" type="submit">Create draft for ${esc(monthLabel(previousMonth().start))}</button></form>
       <ul class="plain">${reports.map((r) => `<li><a href="/team/reports/${esc(r.id)}">${esc(monthLabel(r.period_start))}</a> <span class="pill ${r.status === 'sent' ? 'p-posted' : 'p-needs'}">${r.status === 'sent' ? 'Sent' : 'Draft, needs approval'}</span></li>`).join('') || '<li class="note">No reports yet.</li>'}</ul>
     </section>`;
-  sendHtml(res, 200, appPage({ title: b.name, ctx, active: 'team', body, notice: notice('ok', msgs[query.done] || '') }));
+  const note = errs[query.error] ? notice('error', errs[query.error]) : notice('ok', msgs[query.done] || '');
+  sendHtml(res, 200, appPage({ title: b.name, ctx, active: 'team', body, notice: note }));
+}
+
+// Sends (or re-sends) the owner a set-password link and connects their login to the business.
+export async function postInvite(req, res, { params }) {
+  if (!isSameOrigin(req)) return redirect(res, '/team');
+  const ctx = await requireStaff(req, res, '/team');
+  if (!ctx) return;
+  const d = db(ctx.user.token);
+  const b = await loadBusiness(d, params.id);
+  if (!b.owner_email) return redirect(res, `/team/b/${b.id}?error=noemail`);
+  const back = (q) => redirect(res, `/team/b/${b.id}?${q}`);
+  try {
+    const user = await auth.invite(b.owner_email, {}, `${config.appUrl}/auth/callback`);
+    if (user && user.id) await db('service').insert('memberships', { user_id: user.id, business_id: b.id, role: 'owner' }).catch(() => {});
+    return back('done=invited');
+  } catch (e) {
+    if (e.status === 429) return back('error=limited');
+    if (e.status !== 422) { console.error('[invite]', e.status, e.message); return back('error=invite'); }
+  }
+  // Already has an account: link it, then send a password-reset link instead.
+  try {
+    await d.rpc('link_business_owner', { bid: b.id });
+    await auth.recover(b.owner_email, `${config.appUrl}/auth/callback`);
+    return back('done=reset');
+  } catch (e) {
+    if (e.status === 429) return back('error=limited');
+    console.error('[invite/reset]', e.status, e.message);
+    return back('error=invite');
+  }
 }
 
 export async function postApproveGuidelines(req, res, { params }) {

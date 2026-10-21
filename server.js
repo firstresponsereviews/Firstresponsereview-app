@@ -39,6 +39,7 @@ const routes = [
   ['POST', '/team/reports/generate', T.postGenerateAll],
   ['GET', '/team/b/:id', T.getTeamBusiness],
   ['POST', '/team/b/:id/approve-guidelines', T.postApproveGuidelines],
+  ['POST', '/team/b/:id/invite', T.postInvite],
   ['POST', '/team/b/:id/reviews', T.postAddReview],
   ['POST', '/team/b/:id/reports/generate', T.postGenerateOne],
   ['POST', '/team/reviews/:id/posted', T.postMarkPosted],

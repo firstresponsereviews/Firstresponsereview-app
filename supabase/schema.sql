@@ -197,6 +197,20 @@ begin
    where id = rid;
 end $$;
 
+-- Staff: connect a business to an existing login with the same email.
+create or replace function public.link_business_owner(bid uuid) returns boolean
+language plpgsql security definer set search_path = public as $$
+declare uid uuid;
+begin
+  if not public.is_staff() then
+    raise exception 'not allowed' using errcode = '42501';
+  end if;
+  select u.id into uid from auth.users u join public.businesses b on lower(u.email) = lower(b.owner_email) where b.id = bid;
+  if uid is null then return false; end if;
+  insert into public.memberships (user_id, business_id, role) values (uid, bid, 'owner') on conflict do nothing;
+  return true;
+end $$;
+
 -- Lock things down: no anonymous access, functions only for signed-in users.
 revoke all on all tables in schema public from anon;
 revoke execute on function public.submit_guidelines(uuid, jsonb) from public, anon;
@@ -210,6 +224,8 @@ grant execute on function public.is_member(uuid) to authenticated;
 grant execute on function public.submit_guidelines(uuid, jsonb) to authenticated;
 grant execute on function public.approve_reply(uuid, text) to authenticated;
 grant execute on function public.mark_reply_posted(uuid, text) to authenticated;
+revoke execute on function public.link_business_owner(uuid) from public, anon;
+grant execute on function public.link_business_owner(uuid) to authenticated;
 
 -- Make yourself staff (run after you first log in, with your own email):
 -- update public.profiles set role = 'staff'

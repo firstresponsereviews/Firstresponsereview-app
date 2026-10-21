@@ -273,3 +273,36 @@ test('forgot password never reveals whether an account exists', async () => {
   assert.equal(c.location, '/login?reset=sent');
   assert.equal(S().recovers.at(-1).redirect_to, `${stack.appUrl}/auth/callback`);
 });
+
+test('staff can (re)send a set-password email when the signup invite failed', async () => {
+  // Signup arrives while the email service is rate-limited: business is created, no login yet.
+  S().failInvite = 429;
+  const body = { triggerType: 'form_submission', payload: { name: 'Free Trial', data: { Name: 'Ana', Email: 'ana@salon.example', Business: 'Salon Ana' } } };
+  const res = await fetch(`${stack.appUrl}/api/webflow/form?key=${URL_KEY}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  assert.equal((await res.json()).invited, false);
+  const biz = S().tables.businesses.find((b) => b.owner_email === 'ana@salon.example');
+  let page = await staff.get(`/team/b/${biz.id}`);
+  assert.match(page.text, /No one can log in to this business yet/);
+
+  // Still limited: staff see a clear message.
+  let r = await staff.post(`/team/b/${biz.id}/invite`);
+  assert.equal(r.location, `/team/b/${biz.id}?error=limited`);
+
+  // Limit clears: invite goes out and the login is linked.
+  S().failInvite = 0;
+  r = await staff.post(`/team/b/${biz.id}/invite`);
+  assert.equal(r.location, `/team/b/${biz.id}?done=invited`);
+  const user = S().users.find((u) => u.email === 'ana@salon.example');
+  assert.ok(S().tables.memberships.some((m) => m.user_id === user.id && m.business_id === biz.id));
+
+  // Pressing it again: account exists, so it sends a reset link instead.
+  r = await staff.post(`/team/b/${biz.id}/invite`);
+  assert.equal(r.location, `/team/b/${biz.id}?done=reset`);
+  assert.equal(S().recovers.at(-1).email, 'ana@salon.example');
+  page = await staff.get(`/team/b/${biz.id}?done=reset`);
+  assert.match(page.text, /1 login connected/);
+
+  // Clients can't use it.
+  const c = await client.post(`/team/b/${biz.id}/invite`);
+  assert.notEqual(c.location, `/team/b/${biz.id}?done=invited`);
+});

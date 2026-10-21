@@ -97,6 +97,14 @@ export function createMock() {
     },
     approve_reply(uid, { rid, reply_text }) { return reply(uid, rid, reply_text, 'approved'); },
     mark_reply_posted(uid, { rid, reply_text }) { return reply(uid, rid, reply_text, 'posted'); },
+    link_business_owner(uid, { bid }) {
+      if (!isStaff(uid)) return [403, { message: 'not allowed' }];
+      const b = state.tables.businesses.find((x) => x.id === bid);
+      const u = b && state.users.find((x) => x.email === String(b.owner_email || '').toLowerCase());
+      if (!u) return [200, false];
+      if (!state.tables.memberships.some((m) => m.user_id === u.id && m.business_id === bid)) state.tables.memberships.push({ user_id: u.id, business_id: bid, role: 'owner', created_at: new Date().toISOString() });
+      return [200, true];
+    },
   };
   function reply(uid, rid, text, status) {
     const r = state.tables.reviews.find((x) => x.id === rid);
@@ -143,6 +151,7 @@ export function createMock() {
     if (p === '/auth/v1/recover') { state.recovers.push({ email: body.email, redirect_to: url.searchParams.get('redirect_to') }); return send(200, {}); }
     if (p === '/auth/v1/invite') {
       if (!service) return send(403, { message: 'User not allowed' });
+      if (state.failInvite) return send(state.failInvite, { msg: 'email rate limit exceeded' });
       if (state.users.some((x) => x.email === body.email)) return send(422, { msg: 'A user with this email address has already been registered' });
       const u = addUser(body.email, null, body.data || {});
       state.invites.push({ email: body.email, redirect_to: url.searchParams.get('redirect_to') });
