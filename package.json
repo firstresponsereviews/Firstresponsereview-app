@@ -1,0 +1,13 @@
+{
+  "name": "first-response-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "First Response client dashboard: review inbox, reputation guidelines, monthly reports and team console.",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch --env-file=.env server.js",
+    "test": "node --test test/*.test.js"
+  }
+}

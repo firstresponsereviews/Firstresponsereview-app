@@ -1,0 +1,55 @@
+# One-click setup on Render (https://render.com): New → Blueprint → pick this repo.
+# You'll be asked for the values marked "sync: false". See README.md, step 3.
+services:
+  - type: web
+    name: first-response-dashboard
+    runtime: node
+    plan: starter
+    buildCommand: echo "no build step"
+    startCommand: node server.js
+    healthCheckPath: /healthz
+    envVars:
+      - key: APP_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: WEBFLOW_SITE_URL
+        value: https://first-response-reviews.webflow.io
+      - key: WEBFLOW_WEBHOOK_KEY
+        generateValue: true
+      - key: WEBFLOW_WEBHOOK_SECRET
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: TEAM_EMAIL
+        value: kaitlyn@beyondsmm.com
+      - key: CRON_SECRET
+        generateValue: true
+      - key: ANTHROPIC_API_KEY
+        sync: false
+  # Creates last month's report drafts at 6 a.m. Pacific on the 1st (13:00 UTC)
+  # and emails TEAM_EMAIL that they're ready for review.
+  - type: cron
+    name: first-response-monthly-reports
+    runtime: node
+    plan: starter
+    schedule: "0 13 1 * *"
+    buildCommand: echo "no build step"
+    startCommand: node scripts/run-monthly-reports.js
+    envVars:
+      - key: APP_URL
+        fromService:
+          type: web
+          name: first-response-dashboard
+          envVarKey: APP_URL
+      - key: CRON_SECRET
+        fromService:
+          type: web
+          name: first-response-dashboard
+          envVarKey: CRON_SECRET
