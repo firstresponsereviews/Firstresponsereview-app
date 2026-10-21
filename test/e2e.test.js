@@ -306,3 +306,52 @@ test('staff can (re)send a set-password email when the signup invite failed', as
   const c = await client.post(`/team/b/${biz.id}/invite`);
   assert.notEqual(c.location, `/team/b/${biz.id}?done=invited`);
 });
+
+test('free trial from the website: details, then password, then straight into the questionnaire', async () => {
+  const visitor = browser(stack.appUrl);
+  const details = { Name: 'Jo Rivera', Email: 'Jo@NewEra.example', Business: 'New Era Electric', City: 'San Diego', Phone: '(619) 555-0199', Locations: '1', Plan: 'Pro', 'Review sites': 'Google, Yelp' };
+  // Step 1: the Webflow form posts its fields here.
+  const step1 = await visitor.post('/signup', { form: details, origin: WEBFLOW });
+  assert.equal(step1.status, 200);
+  assert.match(step1.text, /Create your login/);
+  assert.match(step1.text, /jo@newera\.example/);
+  assert.equal(S().users.filter((u) => u.email === 'jo@newera.example').length, 0);
+
+  // Step 2: mismatched passwords are caught.
+  const fields = Object.fromEntries([...step1.text.matchAll(/<input type="hidden" name="([^"]+)" value="([^"]*)">/g)].map((m) => [m[1], m[2].replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"')]));
+  const bad = await visitor.post('/signup', { form: { ...fields, password: 'longpassword1', password2: 'different123' } });
+  assert.match(bad.text, /passwords don’t match/);
+
+  const ok = await visitor.post('/signup', { form: { ...fields, password: 'longpassword1', password2: 'longpassword1' } });
+  assert.equal(ok.status, 303);
+  assert.equal(ok.location, '/onboarding?welcome=1');
+  const biz = S().tables.businesses.find((b) => b.owner_email === 'jo@newera.example');
+  assert.equal(biz.name, 'New Era Electric');
+  assert.equal(biz.review_sites, 'Google, Yelp');
+  const user = S().users.find((u) => u.email === 'jo@newera.example');
+  assert.ok(S().tables.memberships.some((m) => m.user_id === user.id && m.business_id === biz.id));
+
+  // Logged in already: the questionnaire opens, prefilled with their business.
+  const q = await visitor.get('/onboarding');
+  assert.equal(q.status, 200);
+  assert.match(q.text, /New Era Electric/);
+
+  // Same email again: told to log in instead, no duplicate business.
+  const again = browser(stack.appUrl);
+  const dup = await again.post('/signup', { form: { ...fields, password: 'longpassword1', password2: 'longpassword1' } });
+  assert.match(dup.text, /already has an account/);
+  assert.equal(S().tables.businesses.filter((b) => b.owner_email === 'jo@newera.example').length, 1);
+});
+
+test('signup page works on its own and rejects other sites', async () => {
+  const v = browser(stack.appUrl);
+  const page = await v.get('/signup?plan=Concierge');
+  assert.match(page.text, /Start your free trial/);
+  const evil = await v.post('/signup', { form: { email: 'x@y.example', business: 'X', password: 'longpassword1', password2: 'longpassword1' }, origin: 'https://evil.example' });
+  assert.equal(evil.status, 403);
+  const short = await v.post('/signup', { form: { email: 'sam@shop.example', business: 'Sam’s Shop', password: 'short', password2: 'short', locations: '1' } });
+  assert.match(short.text, /at least 8 characters/);
+  const ok = await v.post('/signup', { form: formOf({ name: 'Sam', email: 'sam@shop.example', business: 'Sam’s Shop', locations: '1', plan: 'Starter', review_sites: ['Google', 'Trustpilot'], password: 'longpassword1', password2: 'longpassword1' }) });
+  assert.equal(ok.location, '/onboarding?welcome=1');
+  assert.equal(S().tables.businesses.find((b) => b.owner_email === 'sam@shop.example').review_sites, 'Google, Trustpilot');
+});

@@ -10,6 +10,7 @@ import { esc, publicPage } from './lib/html.js';
 import * as A from './routes/auth.js';
 import * as P from './routes/app.js';
 import * as T from './routes/team.js';
+import * as SU from './routes/signup.js';
 import * as W from './routes/webhooks.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -18,6 +19,8 @@ const PUBLIC = path.join(ROOT, 'public');
 const routes = [
   ['GET', '/healthz', (req, res) => sendJson(res, 200, { ok: true })],
   ['GET', '/login', A.getLogin],
+  ['GET', '/signup', SU.getSignup],
+  ['POST', '/signup', SU.postSignup],
   ['POST', '/auth/login', A.postLogin],
   ['POST', '/auth/logout', A.postLogout],
   ['GET', '/forgot-password', A.getForgot],

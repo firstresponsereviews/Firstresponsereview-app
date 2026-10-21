@@ -216,3 +216,8 @@ ul.plain{list-style:none;padding:0}
 }
 @media (max-width:480px){.kpis{gap:10px}.kpi{padding:12px 14px}.kpi .val{font-size:24px}.kpi .label{font-size:11px;letter-spacing:.05em}.authcard{padding:22px}main.public-main{padding-top:24px}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+.authcard .eyebrow{margin:0;font-size:12px;text-transform:uppercase;letter-spacing:.08em;font-weight:700;color:var(--ember)}
+.authcard .fine{margin:-6px 0 0}
+.checks{border:0;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:8px 18px}
+.checks legend{font-weight:700;margin-bottom:6px;padding:0}
+.checks label{display:inline-flex;align-items:center;gap:6px;font-weight:500}

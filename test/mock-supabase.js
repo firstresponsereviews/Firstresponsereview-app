@@ -149,6 +149,13 @@ export function createMock() {
     }
     if (p === '/auth/v1/logout') { state.access.delete(bearer); return send(204, null); }
     if (p === '/auth/v1/recover') { state.recovers.push({ email: body.email, redirect_to: url.searchParams.get('redirect_to') }); return send(200, {}); }
+    if (p === '/auth/v1/admin/users' && req.method === 'POST') {
+      if (!service) return send(403, { message: 'User not allowed' });
+      const email = String(body.email || '').toLowerCase();
+      if (state.users.some((x) => x.email === email)) return send(422, { msg: 'A user with this email address has already been registered' });
+      const u = addUser(email, body.password, body.user_metadata || {});
+      return send(200, publicUser(u.id));
+    }
     if (p === '/auth/v1/invite') {
       if (!service) return send(403, { message: 'User not allowed' });
       if (state.failInvite) return send(state.failInvite, { msg: 'email rate limit exceeded' });
