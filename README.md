@@ -24,7 +24,15 @@ Dashboard ◀──────────────────────�
 Render cron (1st of the month) ─────────────────────────────▶ /api/cron/monthly-reports ─▶ draft reports ─▶ team approves ─▶ emailed to client
 ```
 
-## Set it up (about 30 minutes)
+## Where it's running now
+
+- **Dashboard:** https://first-response-dashboard.onrender.com (Render, free plan, auto-deploys from `main`). Settings are under Render → first-response-dashboard → Environment.
+- **Database and logins:** Supabase project `dekofgkjrmhhuggilzon`.
+- **Monthly reports:** Supabase runs a scheduled job (`first-response-monthly-reports`, pg_cron) at 13:00 UTC on the 1st. It calls `/api/cron/monthly-reports` with `CRON_SECRET`, so no Render cron job is needed.
+- **Webflow:** the `/login` page posts to the dashboard. A `form_submission` webhook for the **Free Trial** form calls `/api/webflow/form?key=WEBFLOW_WEBHOOK_KEY`. Contact-form emails still come from Webflow's own form notifications.
+- **On the free plan,** the dashboard sleeps after 15 minutes idle, and the first visit then takes about a minute. Switch to Starter in Render before real clients use it.
+
+## Set it up from scratch (about 30 minutes)
 
 ### 1. Supabase (logins and database)
 1. Create a free project at supabase.com.
